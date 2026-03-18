@@ -20,8 +20,8 @@ services:
       - notebooks:/app/notebooks
       - data:/app/data
       - ../assets:/app/assets
-      - ~/.pyrit:/home/vscode/.pyrit
-      - ../fintech_ai_audit:/app/fintech_ai_audit 
+      - ~/.pyrit/.env:/home/vscode/.pyrit/.env:ro
+      - ~/.pyrit/.env.local:/home/vscode/.pyrit/.env.local:ro
     environment:
       - PYRIT_MODE=jupyter
     restart: unless-stopped
@@ -47,8 +47,8 @@ services:
       - "8000:8000"
     volumes:
       - ../assets:/app/assets
-      - ~/.pyrit:/home/vscode/.pyrit
-      - ../fintech_ai_audit:/app/fintech_ai_audit 
+      - ~/.pyrit/.env:/home/vscode/.pyrit/.env:ro
+      - ~/.pyrit/.env.local:/home/vscode/.pyrit/.env.local:ro
     environment:
       - PYRIT_MODE=gui
     restart: unless-stopped
