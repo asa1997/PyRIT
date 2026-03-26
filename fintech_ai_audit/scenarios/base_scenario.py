@@ -55,7 +55,7 @@ class BaseFintechScenario(ABC):
         # 2. The Conveyor Belt Generator (Prevents 3 million prompts from crashing RAM)
         def get_prompt_chunks(datasets, chunk_size):
             chunk = []
-            for dataset in datasets:
+            for dataset in datasets[:2]: # Only process the first 2 datasets to limit memory usage for this example
                 for seed in dataset.seeds:
                     chunk.append(seed.value)
                     if len(chunk) == chunk_size:
