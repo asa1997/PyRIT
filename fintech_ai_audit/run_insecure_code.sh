@@ -6,7 +6,12 @@ echo "=========================================================="
 
 # 1. Run the attack script inside your existing Jupyter container
 echo "[+] PHASE 1: LAUNCHING ATTACKS (VIA DOCKER EXEC)"
-sudo docker exec  -w /app/fintech_ai_audit pyrit-jupyter python main_audit.py --threats insecure_code_generation --ignore-judge
+# if [ -n "$1" ]; then
+    echo "[+] Limiting attack to $1 prompts"
+    sudo docker exec -w /app/fintech_ai_audit pyrit-jupyter python main_audit.py --threats insecure_code_generation --ignore-judge --max-prompts "2"
+# else
+#     sudo docker exec -w /app/fintech_ai_audit pyrit-jupyter python main_audit.py --threats insecure_code_generation --ignore-judge
+# fi
 
 # --- SAFETY CHECK ---
 if [ $? -ne 0 ]; then

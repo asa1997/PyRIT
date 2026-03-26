@@ -6,7 +6,12 @@ echo "=========================================================="
 
 # 1. Run the attack script inside your existing Jupyter container
 echo "[+] PHASE 1: LAUNCHING ATTACKS (VIA DOCKER EXEC)"
-sudo docker exec -e PROMPTINTEL_API_KEY="$PROMPTINTEL_API_KEY" -w /app/fintech_ai_audit pyrit-jupyter python main_audit.py --threats prompt_injection --ignore-judge
+# if [ -n "$1" ]; then
+	# echo "[+] Limiting attack to $1 prompts"
+	sudo docker exec -e PROMPTINTEL_API_KEY="$PROMPTINTEL_API_KEY" -w /app/fintech_ai_audit pyrit-jupyter python main_audit.py --threats prompt_injection --ignore-judge --max-prompts "2"
+# else
+# 	sudo docker exec -e PROMPTINTEL_API_KEY="$PROMPTINTEL_API_KEY" -w /app/fintech_ai_audit pyrit-jupyter python main_audit.py --threats prompt_injection --ignore-judge
+# fi
 
 # --- SAFETY CHECK ---
 if [ $? -ne 0 ]; then

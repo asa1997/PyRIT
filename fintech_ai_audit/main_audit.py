@@ -1,8 +1,8 @@
 import asyncio
-import logging
 import argparse
-import uuid
+import logging
 import os
+import uuid
 from pathlib import Path
 
 from pyrit.setup import SQLITE, initialize_pyrit_async
@@ -14,7 +14,12 @@ from scenarios import THREAT_REGISTRY
 # Enable detailed system logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-async def main(requested_threats: list, ignore_judge: bool = False):
+async def main(
+    *,
+    requested_threats: list[str],
+    ignore_judge: bool = False,
+    max_prompts: int | None = None,
+) -> None:
     # 1. Initialize PyRIT and automatically load the .env file
     # This guarantees all generated prompts are saved to your local disk
     config_path = Path("/app/fintech_ai_audit/config.env")
@@ -79,7 +84,8 @@ async def main(requested_threats: list, ignore_judge: bool = False):
         await scenario_instance.execute(
                 target_llm=target_llm,
                 judge_llm=judge_llm,
-                run_id=current_run_id
+            run_id=current_run_id,
+            max_prompts=max_prompts,
             )
             
 
@@ -104,6 +110,21 @@ if __name__ == "__main__":
         action="store_true",
         help="Do not load the Judge LLM into memory (Use for Batch Scoring)."
     )
+    parser.add_argument(
+        "--max-prompts",
+        type=int,
+        default=None,
+        help="Limit how many prompts are executed per threat attack.",
+    )
     args = parser.parse_args()
 
-    asyncio.run(main(requested_threats=args.threats, ignore_judge=args.ignore_judge))
+    if args.max_prompts is not None and args.max_prompts <= 0:
+        parser.error("--max-prompts must be greater than 0")
+
+    asyncio.run(
+        main(
+            requested_threats=args.threats,
+            ignore_judge=args.ignore_judge,
+            max_prompts=args.max_prompts,
+        )
+    )

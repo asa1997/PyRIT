@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
-from pyrit.score import Scorer
-from pyrit.prompt_target import PromptTarget
-from typing import Optional
+
 from pyrit.datasets import SeedDatasetProvider
+from pyrit.prompt_target import PromptTarget
+from pyrit.score import Scorer
 
 class BaseFintechScenario(ABC):
     """
@@ -44,7 +44,15 @@ class BaseFintechScenario(ABC):
     # =====================================================================
     # This automatically protects your 16GB RAM for every threat scenario.
     # =====================================================================
-    async def execute(self, target_llm: PromptTarget, run_id: str, judge_llm: Optional[PromptTarget] = None, **kwargs):
+    async def execute(
+        self,
+        *,
+        target_llm: PromptTarget,
+        run_id: str,
+        judge_llm: PromptTarget | None = None,
+        max_prompts: int | None = None,
+        **kwargs,
+    ) -> None:
         """
         Fetches the datasets, slices them into hardware-safe chunks, labels them 
         for batch scoring, and passes them to the specific attack strategy.
@@ -53,14 +61,28 @@ class BaseFintechScenario(ABC):
         datasets = await SeedDatasetProvider.fetch_datasets_async(dataset_names=self.dataset_names)
 
         # 2. The Conveyor Belt Generator (Prevents 3 million prompts from crashing RAM)
-        def get_prompt_chunks(datasets, chunk_size):
-            chunk = []
-            for dataset in datasets[:2]: # Only process the first 2 datasets to limit memory usage for this example
+        def get_prompt_chunks(
+            datasets: list,
+            chunk_size: int,
+            prompt_limit: int | None,
+        ):
+            chunk: list[str] = []
+            processed_prompts = 0
+
+            for dataset in datasets:
                 for seed in dataset.seeds:
+                    if prompt_limit is not None and processed_prompts >= prompt_limit:
+                        if chunk:
+                            yield chunk
+                        return
+
                     chunk.append(seed.value)
+                    processed_prompts += 1
+
                     if len(chunk) == chunk_size:
                         yield chunk
                         chunk = []
+
             if chunk:
                 yield chunk
 
@@ -68,9 +90,12 @@ class BaseFintechScenario(ABC):
         CHUNK_SIZE = 5000 
         batch_num = 1
         
-        print(f"\n[*] Executing dataset: {self.dataset_names}")
+        if max_prompts is None:
+            print(f"\n[*] Executing dataset: {self.dataset_names}")
+        else:
+            print(f"\n[*] Executing dataset: {self.dataset_names} (max prompts: {max_prompts})")
         
-        for current_chunk in get_prompt_chunks(datasets, CHUNK_SIZE):
+        for current_chunk in get_prompt_chunks(datasets, CHUNK_SIZE, max_prompts):
             current_batch_id = f"batch_{batch_num}"
             
             print(f"  [+] Processing {current_batch_id} ({len(current_chunk)} prompts)...")
@@ -99,7 +124,14 @@ class BaseFintechScenario(ABC):
     # =====================================================================
     
     @abstractmethod
-    async def _execute_attack_strategy(self, target_llm: PromptTarget, judge_llm: Optional[PromptTarget], chunk: list[str], labels: dict):
+    async def _execute_attack_strategy(
+        self,
+        *,
+        target_llm: PromptTarget,
+        judge_llm: PromptTarget | None,
+        chunk: list[str],
+        labels: dict,
+    ) -> None:
         """
         Forces the scenario to define its specific single-turn or multi-turn attack logic.
         """
