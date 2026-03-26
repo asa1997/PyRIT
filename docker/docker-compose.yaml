@@ -21,7 +21,7 @@ services:
       - data:/app/data
       - ../assets:/app/assets
       - ~/.pyrit:/home/vscode/.pyrit
-      - ../fintech_ai_audit:/app/fintech_ai_audit 
+      - /home/ubuntu/PyRIT/fintech_ai_audit:/app/fintech_ai_audit 
     environment:
       - PYRIT_MODE=jupyter
     restart: unless-stopped
