@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-
+from typing import Optional
 from pyrit.datasets import SeedDatasetProvider
 from pyrit.prompt_target import PromptTarget
 from pyrit.score import Scorer
@@ -124,14 +124,7 @@ class BaseFintechScenario(ABC):
     # =====================================================================
     
     @abstractmethod
-    async def _execute_attack_strategy(
-        self,
-        *,
-        target_llm: PromptTarget,
-        judge_llm: PromptTarget | None,
-        chunk: list[str],
-        labels: dict,
-    ) -> None:
+    async def _execute_attack_strategy(self, target_llm: PromptTarget, judge_llm: Optional[PromptTarget], chunk: list[str], labels: dict):
         """
         Forces the scenario to define its specific single-turn or multi-turn attack logic.
         """
