@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Optional
 
 from pyrit.executor.attack import PromptSendingAttack, AttackExecutor
-from pyrit.score import Scorer, SelfAskTrueFalseScorer, TrueFalseQuestion
+from pyrit.score import Scorer
 from pyrit.models import Message, SeedPrompt
 from pyrit.prompt_target import PromptTarget
 

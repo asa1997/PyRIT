@@ -18,7 +18,7 @@ async def main(
     *,
     requested_threats: list[str],
     ignore_judge: bool = False,
-    max_prompts: int | None = None,
+    # max_prompts: int | None = None,
 ) -> None:
     # 1. Initialize PyRIT and automatically load the .env file
     # This guarantees all generated prompts are saved to your local disk
@@ -85,7 +85,7 @@ async def main(
                 target_llm=target_llm,
                 judge_llm=judge_llm,
             run_id=current_run_id,
-            max_prompts=max_prompts,
+            # max_prompts=max_prompts,
             )
             
 
@@ -125,6 +125,6 @@ if __name__ == "__main__":
         main(
             requested_threats=args.threats,
             ignore_judge=args.ignore_judge,
-            max_prompts=args.max_prompts,
+            # max_prompts=args.max_prompts,
         )
     )

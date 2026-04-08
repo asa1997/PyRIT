@@ -50,7 +50,7 @@ class BaseFintechScenario(ABC):
         target_llm: PromptTarget,
         run_id: str,
         judge_llm: PromptTarget | None = None,
-        max_prompts: int | None = None,
+        # max_prompts: int | None = None,
         **kwargs,
     ) -> None:
         """
@@ -64,18 +64,17 @@ class BaseFintechScenario(ABC):
         def get_prompt_chunks(
             datasets: list,
             chunk_size: int,
-            prompt_limit: int | None,
         ):
             chunk: list[str] = []
             processed_prompts = 0
 
             for dataset in datasets:
                 for seed in dataset.seeds:
-                    if prompt_limit is not None and processed_prompts >= prompt_limit:
-                        if chunk:
-                            yield chunk
-                        return
+                    chunk.append(seed.value)
+                    processed_prompts += 1
 
+                    if len(chunk) == chunk_size:
+                        yield chunk
                     chunk.append(seed.value)
                     processed_prompts += 1
 
@@ -90,12 +89,12 @@ class BaseFintechScenario(ABC):
         CHUNK_SIZE = 5000 
         batch_num = 1
         
-        if max_prompts is None:
-            print(f"\n[*] Executing dataset: {self.dataset_names}")
-        else:
-            print(f"\n[*] Executing dataset: {self.dataset_names} (max prompts: {max_prompts})")
+        # if max_prompts is None:
+        #     print(f"\n[*] Executing dataset: {self.dataset_names}")
+        # else:
+        print(f"\n[*] Executing dataset: {self.dataset_names}")
         
-        for current_chunk in get_prompt_chunks(datasets, CHUNK_SIZE, max_prompts):
+        for current_chunk in get_prompt_chunks(datasets, CHUNK_SIZE):
             current_batch_id = f"batch_{batch_num}"
             
             print(f"  [+] Processing {current_batch_id} ({len(current_chunk)} prompts)...")
