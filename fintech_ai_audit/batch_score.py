@@ -9,11 +9,7 @@ from pyrit.prompt_target import OpenAIChatTarget
 from pyrit.score import BatchScorer, SelfAskTrueFalseScorer, TrueFalseQuestion
 from pyrit.memory import CentralMemory
 
-async def main(run_id: str, threat: str):
-    
-    # 1. Initialize PyRIT using local, persistent SQLite
-    config_path = Path("/app/fintech_ai_audit/config.env")
-    await initialize_pyrit_async(memory_db_type=SQLITE, env_files=[config_path])
+async def execute_batch_scoring(run_id: str, threat: str):
     
     print(f"\n[*] BATCH SCORING INITIATED")
     print(f"[*] Target Threat: {threat}")
@@ -79,6 +75,13 @@ async def main(run_id: str, threat: str):
         
         # Increment to load the next chunk from the database
         batch_num += 1
+
+async def main(run_id: str, threat: str):
+    # 1. Initialize PyRIT using local, persistent SQLite
+    config_path = Path("/app/fintech_ai_audit/config.env")
+    await initialize_pyrit_async(memory_db_type=SQLITE, env_files=[config_path])
+    
+    await execute_batch_scoring(run_id, threat)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

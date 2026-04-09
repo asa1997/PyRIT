@@ -18,7 +18,8 @@ async def main(
     *,
     requested_threats: list[str],
     ignore_judge: bool = False,
-    # max_prompts: int | None = None,
+    batch_score: bool = False,
+    max_prompts: int | None = None,
 ) -> None:
     # 1. Initialize PyRIT and automatically load the .env file
     # This guarantees all generated prompts are saved to your local disk
@@ -82,16 +83,24 @@ async def main(
 
         # Pass the SPECIFIC target llm, judge llm  and the run id down to your threat's execute method!
         await scenario_instance.execute(
-                target_llm=target_llm,
-                judge_llm=judge_llm,
+            target_llm=target_llm,
+            judge_llm=judge_llm,
             run_id=current_run_id,
-            # max_prompts=max_prompts,
-            )
+            max_prompts=max_prompts,
+        )
             
 
     # 5. SAVE THE RUN ID: Write it to a file so your .sh script can read it!
     with open("latest_run_id.txt", "w") as f:
         f.write(current_run_id)
+
+    if batch_score:
+        print("\n=== STARTING BATCH SCORING ===")
+        print("[+] Flushing VRAM...")
+        await asyncio.sleep(5)
+        from batch_score import execute_batch_scoring
+        for threat_class in threats_to_run:
+            await execute_batch_scoring(current_run_id, threat_class.__name__)
 
     print(f"\n=== AUDIT COMPLETE ===")
 
@@ -111,6 +120,11 @@ if __name__ == "__main__":
         help="Do not load the Judge LLM into memory (Use for Batch Scoring)."
     )
     parser.add_argument(
+        "--batch-score",
+        action="store_true",
+        help="Run batch scoring immediately after the threats are executed."
+    )
+    parser.add_argument(
         "--max-prompts",
         type=int,
         default=None,
@@ -125,6 +139,7 @@ if __name__ == "__main__":
         main(
             requested_threats=args.threats,
             ignore_judge=args.ignore_judge,
-            # max_prompts=args.max_prompts,
+            batch_score=args.batch_score,
+            max_prompts=args.max_prompts,
         )
     )

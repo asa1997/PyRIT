@@ -4,37 +4,18 @@ echo "=========================================================="
 echo "  THREAT: PROMPT INJECTION (DOCKER EXEC)                  "
 echo "=========================================================="
 
-# 1. Run the attack script inside your existing Jupyter container
-echo "[+] PHASE 1: LAUNCHING ATTACKS (VIA DOCKER EXEC)"
+# 1. Run the attack script and evaluation automatically
+echo "[+] PHASE 1: LAUNCHING ATTACKS & SCORING (VIA DOCKER EXEC)"
 # if [ -n "$1" ]; then
 	# echo "[+] Limiting attack to $1 prompts"
-	sudo docker exec -e PROMPTINTEL_API_KEY="$PROMPTINTEL_API_KEY" -w /app/fintech_ai_audit pyrit-jupyter python main_audit.py --threats prompt_injection --ignore-judge --max-prompts "2"
+	sudo docker exec -e PROMPTINTEL_API_KEY="$PROMPTINTEL_API_KEY" -w /app/fintech_ai_audit pyrit-jupyter python main_audit.py --threats prompt_injection --ignore-judge --batch-score --max-prompts "2"
 # else
-# 	sudo docker exec -e PROMPTINTEL_API_KEY="$PROMPTINTEL_API_KEY" -w /app/fintech_ai_audit pyrit-jupyter python main_audit.py --threats prompt_injection --ignore-judge
+# 	sudo docker exec -e PROMPTINTEL_API_KEY="$PROMPTINTEL_API_KEY" -w /app/fintech_ai_audit pyrit-jupyter python main_audit.py --threats prompt_injection --ignore-judge --batch-score
 # fi
 
 # --- SAFETY CHECK ---
 if [ $? -ne 0 ]; then
-	echo "[-] ERROR: Phase 1 (Attack) failed! Halting pipeline."
-	exit 1
-fi
-# --------------------
-
-# Wait for container to close and Ollama to flush VRAM
-echo "[+] Flushing VRAM..."
-sleep 5
-
-# 2. Read the generated UUID from the state file
-RUN_ID=$(cat latest_run_id.txt)
-echo "[+] Target LLM unloaded. Target Run ID: $RUN_ID"
-
-# 3. Run the evaluation script inside your existing Jupyter container
-echo "[+] PHASE 2: BATCH EVALUATION (VIA DOCKER EXEC)"
-sudo docker exec -w /app/fintech_ai_audit pyrit-jupyter python batch_score.py --run_id "$RUN_ID" --threat prompt_injection
-
-# --- SAFETY CHECK ---
-if [ $? -ne 0 ]; then
-	echo "[-] ERROR: Phase 2 (Evaluation) failed! Halting pipeline."
+	echo "[-] ERROR: Audit pipeline failed! Halting."
 	exit 1
 fi
 # --------------------

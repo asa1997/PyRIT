@@ -50,7 +50,7 @@ class BaseFintechScenario(ABC):
         target_llm: PromptTarget,
         run_id: str,
         judge_llm: PromptTarget | None = None,
-        # max_prompts: int | None = None,
+        max_prompts: int | None = None,
         **kwargs,
     ) -> None:
         """
@@ -61,26 +61,24 @@ class BaseFintechScenario(ABC):
         datasets = await SeedDatasetProvider.fetch_datasets_async(dataset_names=self.dataset_names)
 
         # 2. The Conveyor Belt Generator (Prevents 3 million prompts from crashing RAM)
-        def get_prompt_chunks(
-            datasets: list,
-            chunk_size: int,
-        ):
+        def get_prompt_chunks(datasets: list, chunk_size: int):
             chunk: list[str] = []
             processed_prompts = 0
 
             for dataset in datasets:
                 for seed in dataset.seeds:
-                    chunk.append(seed.value)
-                    processed_prompts += 1
-
-                    if len(chunk) == chunk_size:
-                        yield chunk
+                    if max_prompts is not None and processed_prompts >= max_prompts:
+                        break
+                    
                     chunk.append(seed.value)
                     processed_prompts += 1
 
                     if len(chunk) == chunk_size:
                         yield chunk
                         chunk = []
+                
+                if max_prompts is not None and processed_prompts >= max_prompts:
+                    break
 
             if chunk:
                 yield chunk
@@ -89,10 +87,10 @@ class BaseFintechScenario(ABC):
         CHUNK_SIZE = 5000 
         batch_num = 1
         
-        # if max_prompts is None:
-        #     print(f"\n[*] Executing dataset: {self.dataset_names}")
-        # else:
-        print(f"\n[*] Executing dataset: {self.dataset_names}")
+        if max_prompts is None:
+            print(f"\n[*] Executing dataset: {self.dataset_names}")
+        else:
+            print(f"\n[*] Executing dataset: {self.dataset_names} (Limited to Capped {max_prompts} Prompts)")
         
         for current_chunk in get_prompt_chunks(datasets, CHUNK_SIZE):
             current_batch_id = f"batch_{batch_num}"
