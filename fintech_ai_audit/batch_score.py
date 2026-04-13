@@ -21,7 +21,6 @@ async def execute_batch_scoring(run_id: str, threat: str):
         endpoint=os.environ.get("JUDGE_LLM_ENDPOINT"),
         model_name=os.environ.get("JUDGE_LLM_MODEL"),
         api_key=os.environ.get("JUDGE_LLM_KEY"),
-        max_requests_per_minute=60, 
         httpx_client_kwargs={"timeout": 600.0} # Gives Ollama 10 minutes to respond
     )
     
@@ -35,9 +34,9 @@ async def execute_batch_scoring(run_id: str, threat: str):
     
     memory = CentralMemory.get_memory_instance()
     
-    # 4. STRICT CONCURRENCY LIMIT
-    # Setting batch_size=1 forces PyRIT to evaluate exactly 1 prompt at a time
-    batch_scorer = BatchScorer(batch_size=1) 
+    # 4. PARALLEL SCORING
+    # batch_size controls how many prompts are scored concurrently via asyncio.gather()
+    batch_scorer = BatchScorer(batch_size=10) 
     
     batch_num = 1
     
