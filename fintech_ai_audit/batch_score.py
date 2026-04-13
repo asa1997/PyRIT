@@ -47,6 +47,9 @@ async def execute_batch_scoring(run_id: str, threat: str):
         
         # Query the database for this specific batch
         all_pieces = memory.get_message_pieces(labels={"run_id": run_id, "batch_id": current_batch_id})
+
+        for piece in all_pieces:
+            print(f"  [+] Retrieved MessagePiece ID: {piece.id} with Role: {piece.role} for {current_batch_id}; Original Value: {piece.original_value[:50]}...")
         
         # Filter out the "user" attack prompts, keeping only "assistant" responses
         assistant_piece_ids = [str(piece.id) for piece in all_pieces if piece.role == "assistant"]
