@@ -5,7 +5,8 @@ from pyrit.executor.attack import (
     AttackAdversarialConfig,
     AttackExecutor,
     AttackScoringConfig,
-    CrescendoAttack,
+    RedTeamingAttack,
+    RTASystemPromptPaths
 )
 from pyrit.models import SeedPrompt
 from pyrit.prompt_target import PromptChatTarget, PromptTarget
@@ -21,14 +22,14 @@ from pyrit.score import (
 from .base_scenario import BaseFintechScenario
 
 
-class PromptInjectionMultiTurnScenario(BaseFintechScenario):
+class RedTeamingMultiTurnScenario(BaseFintechScenario):
 
     # ==========================================
     # 1. METADATA PROPERTIES
     # ==========================================
     @property
     def threat_name(self) -> str:
-        return "prompt_injection_multiturn"
+        return "red_teaming_multiturn"
 
     @property
     def owasp_mapping(self) -> str:
@@ -78,12 +79,12 @@ class PromptInjectionMultiTurnScenario(BaseFintechScenario):
     ) -> None:
         if judge_llm is None:
             raise ValueError(
-                "Multi-turn Crescendo attack requires a judge LLM for scoring. "
+                "Multi-turn RedTeaming attack requires a judge LLM for scoring. "
                 "Do not use --ignore-judge with this threat."
             )
 
         # 1. ADVERSARIAL CONFIG — the red-team LLM that generates escalating prompts
-        adversarial_config = AttackAdversarialConfig(target=judge_llm)
+        adversarial_config = AttackAdversarialConfig(target=judge_llm,system_prompt_path=RTASystemPromptPaths.TEXT_GENERATION.value,)
 
         # 2. SCORING CONFIG — used during the conversation loop to detect success/refusal
         scoring_config = AttackScoringConfig(
@@ -100,12 +101,13 @@ class PromptInjectionMultiTurnScenario(BaseFintechScenario):
         )
 
         # 3. CREATE MULTI-TURN ATTACK
-        attack = CrescendoAttack(
+        #    RedTeamingAttack accepts plain text from the adversarial LLM (no strict JSON parsing),
+        #    making it compatible with local models like Ollama.
+        attack = RedTeamingAttack(
             objective_target=target_llm,
             attack_adversarial_config=adversarial_config,
             attack_scoring_config=scoring_config,
             max_turns=7,
-            max_backtracks=4,
         )
 
         # 4. EXECUTE — each objective in the chunk becomes a multi-turn conversation
