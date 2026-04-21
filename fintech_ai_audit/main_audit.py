@@ -10,6 +10,7 @@ from pyrit.prompt_target import OpenAIChatTarget
 
 # Import your dynamic registry from the scenarios folder
 from scenarios import THREAT_REGISTRY
+from report_generator import generate_report
 
 # Enable detailed system logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -101,6 +102,13 @@ async def main(
         from batch_score import execute_batch_scoring
         for threat_class in threats_to_run:
             await execute_batch_scoring(current_run_id, threat_class.__name__)
+
+    # 6. GENERATE JSON REPORT
+    print("\n=== GENERATING REPORT ===")
+    generate_report(
+        run_id=current_run_id,
+        threat_classes=threats_to_run,
+    )
 
     print(f"\n=== AUDIT COMPLETE ===")
 
