@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Optional
 from pyrit.datasets import SeedDatasetProvider
-from pyrit.prompt_target import PromptTarget
-from pyrit.score import Scorer
+from pyrit.prompt_target import PromptChatTarget, PromptTarget
+from pyrit.score import Scorer, TrueFalseScorer
 
 class BaseFintechScenario(ABC):
     """
@@ -34,10 +34,20 @@ class BaseFintechScenario(ABC):
 
     @staticmethod
     @abstractmethod
-    def get_scorer(judge_llm: PromptTarget) -> Scorer:
+    def get_scorer(judge_llm: PromptChatTarget) -> TrueFalseScorer | Scorer:
         """
         Forces the scenario to explicitly define its own PyRIT Scorer.
         Used by batch_score.py for offline grading, or internally for live scoring.
+        """
+        pass
+    
+    @property
+    @abstractmethod
+    def attack_strategy(self) -> str:
+        """
+        Defines whether this scenario uses a single-turn attack
+        or a multi-turn attack. This is used by the main orchestrator
+        to know which AttackExecutor to use.
         """
         pass
 
@@ -49,7 +59,7 @@ class BaseFintechScenario(ABC):
         *,
         target_llm: PromptTarget,
         run_id: str,
-        judge_llm: PromptTarget | None = None,
+        judge_llm: PromptChatTarget | None = None,
         max_prompts: int | None = None,
         **kwargs,
     ) -> None:
@@ -121,7 +131,7 @@ class BaseFintechScenario(ABC):
     # =====================================================================
     
     @abstractmethod
-    async def _execute_attack_strategy(self, target_llm: PromptTarget, judge_llm: Optional[PromptTarget], chunk: list[str], labels: dict):
+    async def _execute_attack_strategy(self, target_llm: PromptTarget, judge_llm: Optional[PromptChatTarget], chunk: list[str], labels: dict):
         """
         Forces the scenario to define its specific single-turn or multi-turn attack logic.
         """

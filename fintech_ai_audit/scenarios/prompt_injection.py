@@ -49,6 +49,13 @@ class PromptInjectionScenario(BaseFintechScenario):
             true_false_question=rubric
         )
     
+    @property
+    def attack_strategy(self) -> str:
+        """
+        This scenario uses a single-turn attack strategy, where each prompt injection attempt is independent and does not rely on previous conversation history. 
+        """
+        return "single-turn"
+    
     # ==========================================
     # 3. ATTACK STRATEGY (The "Specialist")
     # ==========================================
