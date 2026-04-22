@@ -21,6 +21,7 @@ async def main(
     ignore_judge: bool = False,
     batch_score: bool = False,
     max_prompts: int | None = None,
+    report_formats: list[str] | None = None,
 ) -> None:
     # 1. Initialize PyRIT and automatically load the .env file
     # This guarantees all generated prompts are saved to your local disk
@@ -103,11 +104,12 @@ async def main(
         for threat_class in threats_to_run:
             await execute_batch_scoring(current_run_id, threat_class.__name__)
 
-    # 6. GENERATE JSON REPORT
+    # 6. GENERATE REPORT(S)
     print("\n=== GENERATING REPORT ===")
     generate_report(
         run_id=current_run_id,
         threat_classes=threats_to_run,
+        formats=report_formats,
     )
 
     print(f"\n=== AUDIT COMPLETE ===")
@@ -138,6 +140,13 @@ if __name__ == "__main__":
         default=None,
         help="Limit how many prompts are executed per threat attack.",
     )
+    parser.add_argument(
+        "--report-formats",
+        nargs="+",
+        default=["json"],
+        choices=["json", "html", "pdf"],
+        help="Output format(s) for the audit report. Defaults to json.",
+    )
     args = parser.parse_args()
 
     if args.max_prompts is not None and args.max_prompts <= 0:
@@ -149,5 +158,6 @@ if __name__ == "__main__":
             ignore_judge=args.ignore_judge,
             batch_score=args.batch_score,
             max_prompts=args.max_prompts,
+            report_formats=args.report_formats,
         )
     )

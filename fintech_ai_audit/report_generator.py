@@ -5,6 +5,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from jinja2 import Template
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import inch
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
 from pyrit.memory import CentralMemory
 from pyrit.models import Score
 
@@ -79,24 +86,193 @@ def _build_threat_section(
     return section
 
 
+_HTML_TEMPLATE = Template("""\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ meta.report_title }}</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 2rem; color: #222; }
+  h1 { color: #1a1a2e; }
+  h2 { color: #16213e; border-bottom: 2px solid #0f3460; padding-bottom: .3rem; }
+  h3 { color: #0f3460; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ccc; padding: .5rem .75rem; text-align: left; }
+  th { background: #0f3460; color: #fff; }
+  tr:nth-child(even) { background: #f4f4f4; }
+  .risk-CRITICAL { color: #fff; background: #d32f2f; padding: .2rem .6rem; border-radius: 4px; }
+  .risk-HIGH     { color: #fff; background: #e65100; padding: .2rem .6rem; border-radius: 4px; }
+  .risk-MEDIUM   { color: #000; background: #fbc02d; padding: .2rem .6rem; border-radius: 4px; }
+  .risk-LOW      { color: #fff; background: #388e3c; padding: .2rem .6rem; border-radius: 4px; }
+  .risk-NONE     { color: #fff; background: #616161; padding: .2rem .6rem; border-radius: 4px; }
+  .sample { background: #fff3e0; padding: .75rem; margin: .5rem 0; border-left: 4px solid #e65100; }
+</style>
+</head>
+<body>
+<h1>{{ meta.report_title }}</h1>
+<p><strong>Run ID:</strong> {{ meta.run_id }}<br>
+<strong>Generated:</strong> {{ meta.generated_at }}<br>
+<strong>Target Model:</strong> {{ meta.target_model }}<br>
+<strong>Judge Model:</strong> {{ meta.judge_model }}</p>
+
+<h2>Executive Summary</h2>
+<table>
+  <tr><th>Metric</th><th>Value</th></tr>
+  <tr><td>Total Prompts Sent</td><td>{{ summary.total_prompts_sent }}</td></tr>
+  <tr><td>Total Responses</td><td>{{ summary.total_responses_received }}</td></tr>
+  <tr><td>Total Scored</td><td>{{ summary.total_scored }}</td></tr>
+  <tr><td>Successful Attacks</td><td>{{ summary.total_successful_attacks }}</td></tr>
+  <tr><td>Attack Success Rate</td><td>{{ summary.overall_attack_success_rate_pct }}%</td></tr>
+  <tr><td>Risk Rating</td><td><span class="risk-{{ summary.risk_rating }}">{{ summary.risk_rating }}</span></td></tr>
+</table>
+
+{% for threat in threats %}
+<h2>{{ threat.threat_name }}</h2>
+<p><strong>OWASP:</strong> {{ threat.owasp_mapping }} |
+   <strong>MITRE ATLAS:</strong> {{ threat.mitre_atlas_mapping }} |
+   <strong>Strategy:</strong> {{ threat.attack_strategy }}</p>
+<table>
+  <tr><th>Metric</th><th>Value</th></tr>
+  {% for key, val in threat.statistics.items() %}
+  <tr><td>{{ key }}</td><td>{{ val }}</td></tr>
+  {% endfor %}
+</table>
+{% if threat.sample_successful_attacks %}
+<h3>Sample Successful Attacks (up to 10)</h3>
+{% for sample in threat.sample_successful_attacks %}
+<div class="sample">
+  <strong>Score ID:</strong> {{ sample.score_id }}<br>
+  <strong>Category:</strong> {{ sample.score_category }}<br>
+  <strong>Rationale:</strong> {{ sample.score_rationale }}
+</div>
+{% endfor %}
+{% endif %}
+{% endfor %}
+</body>
+</html>
+""")
+
+
+def _render_html(report: dict[str, Any], output_path: Path) -> None:
+    """Render the report dict as an HTML file."""
+    html = _HTML_TEMPLATE.render(
+        meta=report["report_metadata"],
+        summary=report["executive_summary"],
+        threats=report["threat_results"],
+    )
+    output_path.write_text(html, encoding="utf-8")
+
+
+def _render_pdf(report: dict[str, Any], output_path: Path) -> None:
+    """Render the report dict as a PDF file using reportlab."""
+    doc = SimpleDocTemplate(str(output_path), pagesize=letter)
+    styles = getSampleStyleSheet()
+    story: list[Any] = []
+
+    title_style = ParagraphStyle("ReportTitle", parent=styles["Title"], fontSize=18, spaceAfter=12)
+    heading_style = ParagraphStyle("ReportH2", parent=styles["Heading2"], spaceAfter=6)
+    normal_style = styles["Normal"]
+
+    meta = report["report_metadata"]
+    summary = report["executive_summary"]
+
+    story.append(Paragraph(meta["report_title"], title_style))
+    story.append(Paragraph(
+        f"Run ID: {meta['run_id']}<br/>"
+        f"Generated: {meta['generated_at']}<br/>"
+        f"Target Model: {meta['target_model']}<br/>"
+        f"Judge Model: {meta['judge_model']}",
+        normal_style,
+    ))
+    story.append(Spacer(1, 0.3 * inch))
+
+    # Executive summary table
+    story.append(Paragraph("Executive Summary", heading_style))
+    summary_data = [["Metric", "Value"]] + [
+        [k, str(v)] for k, v in summary.items()
+    ]
+    summary_table = Table(summary_data, hAlign="LEFT")
+    summary_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0f3460")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f4f4f4")]),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 0.3 * inch))
+
+    # Per-threat sections
+    for threat in report["threat_results"]:
+        story.append(Paragraph(threat["threat_name"], heading_style))
+        story.append(Paragraph(
+            f"OWASP: {threat['owasp_mapping']} | "
+            f"MITRE ATLAS: {threat['mitre_atlas_mapping']} | "
+            f"Strategy: {threat['attack_strategy']}",
+            normal_style,
+        ))
+        story.append(Spacer(1, 0.15 * inch))
+
+        stats_data = [["Metric", "Value"]] + [
+            [k, str(v)] for k, v in threat["statistics"].items()
+        ]
+        stats_table = Table(stats_data, hAlign="LEFT")
+        stats_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0f3460")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f4f4f4")]),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ]))
+        story.append(stats_table)
+
+        samples = threat.get("sample_successful_attacks", [])
+        if samples:
+            story.append(Spacer(1, 0.1 * inch))
+            story.append(Paragraph("Sample Successful Attacks", styles["Heading3"]))
+            for sample in samples:
+                story.append(Paragraph(
+                    f"<b>Score ID:</b> {sample['score_id']}<br/>"
+                    f"<b>Category:</b> {sample['score_category']}<br/>"
+                    f"<b>Rationale:</b> {sample['score_rationale']}",
+                    normal_style,
+                ))
+                story.append(Spacer(1, 0.1 * inch))
+
+        story.append(Spacer(1, 0.3 * inch))
+
+    doc.build(story)
+
+
 def generate_report(
     *,
     run_id: str,
     threat_classes: list[type],
     output_dir: str | Path = ".",
-) -> Path:
+    formats: list[str] | None = None,
+) -> list[Path]:
     """
     Query PyRIT memory for all prompts and scores in a run,
-    then write a structured JSON report.
+    then write reports in the requested formats.
 
     Args:
         run_id (str): The UUID of the audit run.
         threat_classes (list[type]): The scenario classes that were executed.
-        output_dir (str | Path): Directory to write the report file. Defaults to cwd.
+        output_dir (str | Path): Directory to write the report files. Defaults to cwd.
+        formats (list[str] | None): Output formats to generate. Supports "json", "html", "pdf".
+            Defaults to ["json"] when None.
 
     Returns:
-        Path: The path to the generated JSON report file.
+        list[Path]: The paths to all generated report files.
     """
+    if formats is None:
+        formats = ["json"]
+
+    valid_formats = {"json", "html", "pdf"}
+    invalid = set(formats) - valid_formats
+    if invalid:
+        raise ValueError(f"Unsupported report format(s): {invalid}. Valid options: {valid_formats}")
     memory = CentralMemory.get_memory_instance()
     now = datetime.now(tz=timezone.utc)
 
@@ -173,12 +349,31 @@ def generate_report(
         "threat_results": threat_sections,
     }
 
-    output_path = Path(output_dir) / f"red_team_report_{run_id}.json"
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(report, indent=2, default=str))
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    base_name = f"red_team_report_{run_id}"
 
-    print(f"\n[REPORT] JSON report written to: {output_path}")
-    return output_path
+    generated_paths: list[Path] = []
+
+    if "json" in formats:
+        json_path = output_dir / f"{base_name}.json"
+        json_path.write_text(json.dumps(report, indent=2, default=str))
+        generated_paths.append(json_path)
+        print(f"\n[REPORT] JSON report written to: {json_path}")
+
+    if "html" in formats:
+        html_path = output_dir / f"{base_name}.html"
+        _render_html(report, html_path)
+        generated_paths.append(html_path)
+        print(f"[REPORT] HTML report written to: {html_path}")
+
+    if "pdf" in formats:
+        pdf_path = output_dir / f"{base_name}.pdf"
+        _render_pdf(report, pdf_path)
+        generated_paths.append(pdf_path)
+        print(f"[REPORT] PDF report written to: {pdf_path}")
+
+    return generated_paths
 
 
 def _compute_risk_rating(success_rate_pct: float) -> str:
