@@ -13,7 +13,7 @@ from reportlab.lib.units import inch
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from pyrit.memory import CentralMemory
-from pyrit.models import Score
+from pyrit.models import MessagePiece, Score
 
 
 def _summarize_score(score: Score) -> dict[str, Any]:
@@ -30,6 +30,41 @@ def _summarize_score(score: Score) -> dict[str, Any]:
     }
 
 
+def _build_conversations(
+    *,
+    all_pieces: list[MessagePiece],
+    scores: list[Score],
+) -> list[dict[str, Any]]:
+    """Group message pieces into conversations with their scores."""
+    score_by_piece: dict[str, Score] = {}
+    for s in scores:
+        score_by_piece[str(s.message_piece_id)] = s
+
+    conversations_map: dict[str, list[MessagePiece]] = {}
+    for piece in all_pieces:
+        cid = str(piece.conversation_id)
+        conversations_map.setdefault(cid, []).append(piece)
+
+    conversations: list[dict[str, Any]] = []
+    for cid, pieces in conversations_map.items():
+        sorted_pieces = sorted(pieces, key=lambda p: p.sequence)
+        turns: list[dict[str, str]] = []
+        for p in sorted_pieces:
+            turn: dict[str, str] = {
+                "role": p.role,
+                "content": p.converted_value or p.original_value or "",
+            }
+            piece_score = score_by_piece.get(str(p.id))
+            if piece_score:
+                turn["score_value"] = piece_score.score_value
+                turn["score_rationale"] = (
+                    piece_score.score_rationale[:300] if piece_score.score_rationale else ""
+                )
+            turns.append(turn)
+        conversations.append({"conversation_id": cid, "turns": turns})
+    return conversations
+
+
 def _build_threat_section(
     *,
     threat_name: str,
@@ -39,6 +74,7 @@ def _build_threat_section(
     total_prompts: int,
     total_responses: int,
     scores: list[Score],
+    all_pieces: list[MessagePiece],
 ) -> dict[str, Any]:
     """Assemble the per-threat section of the report."""
 
@@ -83,6 +119,12 @@ def _build_threat_section(
     ][:10]
     section["sample_successful_attacks"] = successful_samples
 
+    # Build full conversation history
+    section["conversations"] = _build_conversations(
+        all_pieces=all_pieces,
+        scores=scores,
+    )
+
     return section
 
 
@@ -107,6 +149,18 @@ _HTML_TEMPLATE = Template("""\
   .risk-LOW      { color: #fff; background: #388e3c; padding: .2rem .6rem; border-radius: 4px; }
   .risk-NONE     { color: #fff; background: #616161; padding: .2rem .6rem; border-radius: 4px; }
   .sample { background: #fff3e0; padding: .75rem; margin: .5rem 0; border-left: 4px solid #e65100; }
+  .strategy-badge { display: inline-block; background: #1565c0; color: #fff; padding: .25rem .75rem; border-radius: 4px; font-weight: bold; margin-right: .5rem; }
+  .attack-type-badge { display: inline-block; background: #6a1b9a; color: #fff; padding: .25rem .75rem; border-radius: 4px; font-weight: bold; margin-right: .5rem; }
+  .framework-box { background: #e3f2fd; border: 1px solid #1565c0; border-radius: 6px; padding: .75rem 1rem; margin: .75rem 0; }
+  .framework-box strong { color: #0d47a1; }
+  .framework-label { display: inline-block; background: #0d47a1; color: #fff; padding: .15rem .5rem; border-radius: 3px; font-size: .85em; margin-right: .4rem; }
+  .conversation { border: 1px solid #ddd; border-radius: 6px; margin: .75rem 0; padding: .75rem; background: #fafafa; }
+  .conversation h4 { margin: 0 0 .5rem 0; color: #333; font-size: .95em; }
+  .turn { padding: .4rem .6rem; margin: .3rem 0; border-radius: 4px; }
+  .turn-user { background: #e3f2fd; border-left: 3px solid #1565c0; }
+  .turn-assistant { background: #f3e5f5; border-left: 3px solid #6a1b9a; }
+  .turn-role { font-weight: bold; font-size: .85em; text-transform: uppercase; color: #555; }
+  .turn-score { font-size: .85em; color: #c62828; margin-top: .2rem; }
 </style>
 </head>
 <body>
@@ -129,9 +183,18 @@ _HTML_TEMPLATE = Template("""\
 
 {% for threat in threats %}
 <h2>{{ threat.threat_name }}</h2>
-<p><strong>OWASP:</strong> {{ threat.owasp_mapping }} |
-   <strong>MITRE ATLAS:</strong> {{ threat.mitre_atlas_mapping }} |
-   <strong>Strategy:</strong> {{ threat.attack_strategy }}</p>
+
+<p>
+  <span class="strategy-badge">Strategy: {{ threat.attack_strategy }}</span>
+  <span class="attack-type-badge">Attack: {{ threat.threat_name }}</span>
+</p>
+
+<div class="framework-box">
+  <strong>Aligned Framework Findings</strong><br>
+  <span class="framework-label">OWASP</span> {{ threat.owasp_mapping }}<br>
+  <span class="framework-label">MITRE ATLAS</span> {{ threat.mitre_atlas_mapping }}
+</div>
+
 <table>
   <tr><th>Metric</th><th>Value</th></tr>
   {% for key, val in threat.statistics.items() %}
@@ -145,6 +208,22 @@ _HTML_TEMPLATE = Template("""\
   <strong>Score ID:</strong> {{ sample.score_id }}<br>
   <strong>Category:</strong> {{ sample.score_category }}<br>
   <strong>Rationale:</strong> {{ sample.score_rationale }}
+</div>
+{% endfor %}
+{% endif %}
+{% if threat.conversations %}
+<h3>Conversation History</h3>
+{% for conv in threat.conversations %}
+<div class="conversation">
+  <h4>Conversation {{ loop.index }}</h4>
+  {% for turn in conv.turns %}
+  <div class="turn turn-{{ turn.role }}">
+    <span class="turn-role">{{ turn.role }}:</span> {{ turn.content[:500] }}
+    {% if turn.score_value %}
+    <div class="turn-score">Score: {{ turn.score_value }} — {{ turn.score_rationale }}</div>
+    {% endif %}
+  </div>
+  {% endfor %}
 </div>
 {% endfor %}
 {% endif %}
@@ -203,14 +282,43 @@ def _render_pdf(report: dict[str, Any], output_path: Path) -> None:
     story.append(summary_table)
     story.append(Spacer(1, 0.3 * inch))
 
+    # Styles for strategy/attack badges and framework highlights
+    badge_style = ParagraphStyle(
+        "Badge", parent=normal_style, fontSize=10, textColor=colors.white,
+        backColor=colors.HexColor("#1565c0"), spaceAfter=4,
+    )
+    framework_style = ParagraphStyle(
+        "Framework", parent=normal_style, fontSize=9,
+        backColor=colors.HexColor("#e3f2fd"), borderColor=colors.HexColor("#1565c0"),
+        borderWidth=1, borderPadding=6, spaceAfter=6,
+    )
+    turn_user_style = ParagraphStyle(
+        "TurnUser", parent=normal_style, fontSize=8, leftIndent=12,
+        backColor=colors.HexColor("#e3f2fd"), spaceAfter=2,
+    )
+    turn_assistant_style = ParagraphStyle(
+        "TurnAssistant", parent=normal_style, fontSize=8, leftIndent=12,
+        backColor=colors.HexColor("#f3e5f5"), spaceAfter=2,
+    )
+
     # Per-threat sections
     for threat in report["threat_results"]:
         story.append(Paragraph(threat["threat_name"], heading_style))
+
+        # Highlighted strategy and attack type
         story.append(Paragraph(
-            f"OWASP: {threat['owasp_mapping']} | "
-            f"MITRE ATLAS: {threat['mitre_atlas_mapping']} | "
-            f"Strategy: {threat['attack_strategy']}",
-            normal_style,
+            f"<b>Strategy:</b> {threat['attack_strategy']} &nbsp;&nbsp; "
+            f"<b>Attack Type:</b> {threat['threat_name']}",
+            badge_style,
+        ))
+        story.append(Spacer(1, 0.1 * inch))
+
+        # Highlighted aligned framework findings
+        story.append(Paragraph(
+            f"<b>Aligned Framework Findings</b><br/>"
+            f"<b>OWASP:</b> {threat['owasp_mapping']}<br/>"
+            f"<b>MITRE ATLAS:</b> {threat['mitre_atlas_mapping']}",
+            framework_style,
         ))
         story.append(Spacer(1, 0.15 * inch))
 
@@ -238,6 +346,22 @@ def _render_pdf(report: dict[str, Any], output_path: Path) -> None:
                     f"<b>Rationale:</b> {sample['score_rationale']}",
                     normal_style,
                 ))
+                story.append(Spacer(1, 0.1 * inch))
+
+        # Conversation history
+        conversations = threat.get("conversations", [])
+        if conversations:
+            story.append(Spacer(1, 0.1 * inch))
+            story.append(Paragraph("Conversation History", styles["Heading3"]))
+            for idx, conv in enumerate(conversations, 1):
+                story.append(Paragraph(f"<b>Conversation {idx}</b>", normal_style))
+                for turn in conv["turns"]:
+                    content = turn["content"][:500]
+                    style = turn_user_style if turn["role"] == "user" else turn_assistant_style
+                    text = f"<b>{turn['role'].upper()}:</b> {content}"
+                    if turn.get("score_value"):
+                        text += f"<br/><i>Score: {turn['score_value']} — {turn.get('score_rationale', '')}</i>"
+                    story.append(Paragraph(text, style))
                 story.append(Spacer(1, 0.1 * inch))
 
         story.append(Spacer(1, 0.3 * inch))
@@ -278,6 +402,7 @@ def generate_report(
 
     target_model = os.environ.get("TARGET_LLM_MODEL", "unknown")
     judge_model = os.environ.get("JUDGE_LLM_MODEL", "unknown")
+    report_title = f"AI Red Teaming Report using PyRIT on {target_model}"
 
     threat_sections: list[dict[str, Any]] = []
     global_total_prompts = 0
@@ -315,6 +440,7 @@ def generate_report(
             total_prompts=len(user_pieces),
             total_responses=len(assistant_pieces),
             scores=scores,
+            all_pieces=list(all_pieces),
         )
         threat_sections.append(section)
 
@@ -331,7 +457,7 @@ def generate_report(
 
     report: dict[str, Any] = {
         "report_metadata": {
-            "report_title": "Fintech AI Red Teaming Audit Report",
+            "report_title": report_title,
             "run_id": run_id,
             "generated_at": now.isoformat(),
             "target_model": target_model,
