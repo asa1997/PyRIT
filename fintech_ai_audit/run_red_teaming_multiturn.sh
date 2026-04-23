@@ -6,6 +6,7 @@ echo "=========================================================="
 
 # 1. Run the attack script and evaluation automatically
 echo "[+] PHASE 1: LAUNCHING MULTI-TURN ATTACKS & SCORING (VIA DOCKER EXEC)"
+
 sudo docker exec -e PROMPTINTEL_API_KEY="$PROMPTINTEL_API_KEY" -w /app/fintech_ai_audit pyrit-jupyter python main_audit.py --threats red_teaming_multiturn --max-prompts 8 --report-formats html 
 
 # --- SAFETY CHECK ---
