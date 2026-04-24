@@ -122,6 +122,10 @@ class RedTeamingMultiTurnScenario(BaseFintechScenario):
         self._print_turn_scores(labels=labels)
 
     def _print_turn_scores(self, *, labels: dict) -> None:
+
+        print("===================================================")
+        print("           Scores              ")
+        print("===================================================")
         """Query memory for all pieces and scores, then print per-conversation turn results."""
         memory = CentralMemory.get_memory_instance()
 
