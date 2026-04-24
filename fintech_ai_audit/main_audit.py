@@ -110,6 +110,7 @@ async def main(
         run_id=current_run_id,
         threat_classes=threats_to_run,
         formats=report_formats,
+        max_prompts=max_prompts,
     )
 
     print(f"\n=== AUDIT COMPLETE ===")

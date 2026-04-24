@@ -1,6 +1,5 @@
 import json
 import os
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -35,7 +34,7 @@ def _build_conversations(
     all_pieces: list[MessagePiece],
     scores: list[Score],
 ) -> list[dict[str, Any]]:
-    """Group message pieces into conversations with their scores."""
+    """Group message pieces into conversations, pairing user-assistant exchanges as turns."""
     score_by_piece: dict[str, Score] = {}
     for s in scores:
         score_by_piece[str(s.message_piece_id)] = s
@@ -48,20 +47,55 @@ def _build_conversations(
     conversations: list[dict[str, Any]] = []
     for cid, pieces in conversations_map.items():
         sorted_pieces = sorted(pieces, key=lambda p: p.sequence)
-        turns: list[dict[str, str]] = []
+
+        # Extract the original objective (first user message)
+        objective = ""
         for p in sorted_pieces:
-            turn: dict[str, str] = {
-                "role": p.role,
-                "content": p.converted_value or p.original_value or "",
-            }
-            piece_score = score_by_piece.get(str(p.id))
-            if piece_score:
-                turn["score_value"] = piece_score.score_value
-                turn["score_rationale"] = (
-                    piece_score.score_rationale[:300] if piece_score.score_rationale else ""
-                )
-            turns.append(turn)
-        conversations.append({"conversation_id": cid, "turns": turns})
+            if p.role == "user":
+                objective = p.converted_value or p.original_value or ""
+                break
+
+        # Pair consecutive user-assistant messages into numbered turns
+        paired_turns: list[dict[str, Any]] = []
+        turn_number = 0
+        i = 0
+        while i < len(sorted_pieces):
+            p = sorted_pieces[i]
+            if p.role == "user":
+                turn_number += 1
+                user_content = p.converted_value or p.original_value or ""
+                assistant_content = ""
+                score_value = None
+                score_rationale = ""
+                # Look ahead for the paired assistant response
+                if i + 1 < len(sorted_pieces) and sorted_pieces[i + 1].role == "assistant":
+                    ap = sorted_pieces[i + 1]
+                    assistant_content = ap.converted_value or ap.original_value or ""
+                    piece_score = score_by_piece.get(str(ap.id))
+                    if piece_score:
+                        score_value = piece_score.score_value
+                        score_rationale = (
+                            piece_score.score_rationale[:300] if piece_score.score_rationale else ""
+                        )
+                    i += 2
+                else:
+                    i += 1
+                paired_turns.append({
+                    "turn_number": turn_number,
+                    "prompt": user_content,
+                    "response": assistant_content,
+                    "score_value": score_value,
+                    "score_rationale": score_rationale,
+                })
+            else:
+                i += 1
+
+        conversations.append({
+            "conversation_id": cid,
+            "objective": objective,
+            "turns": paired_turns,
+            "total_turns": turn_number,
+        })
     return conversations
 
 
@@ -71,8 +105,8 @@ def _build_threat_section(
     owasp: str,
     mitre: str,
     attack_strategy: str,
-    total_prompts: int,
-    total_responses: int,
+    dataset_names: list[str],
+    max_prompts: int | None,
     scores: list[Score],
     all_pieces: list[MessagePiece],
 ) -> dict[str, Any]:
@@ -83,10 +117,9 @@ def _build_threat_section(
 
     successful_attacks = sum(1 for s in true_false_scores if s.score_value.lower() == "true")
     failed_attacks = sum(1 for s in true_false_scores if s.score_value.lower() == "false")
-    total_scored = len(true_false_scores)
 
-    success_rate = round(successful_attacks / total_scored * 100, 2) if total_scored else 0.0
-    refusal_rate = round(failed_attacks / total_scored * 100, 2) if total_scored else 0.0
+    success_rate = round(successful_attacks / (successful_attacks + failed_attacks) * 100, 2) if (successful_attacks + failed_attacks) else 0.0
+    refusal_rate = round(failed_attacks / (successful_attacks + failed_attacks) * 100, 2) if (successful_attacks + failed_attacks) else 0.0
 
     avg_float = (
         round(sum(float(s.score_value) for s in float_scores) / len(float_scores), 4)
@@ -94,15 +127,29 @@ def _build_threat_section(
         else None
     )
 
+    # Build conversations and compute turn count from actual data
+    conversations = _build_conversations(
+        all_pieces=all_pieces,
+        scores=scores,
+    )
+    turn_count = max((c["total_turns"] for c in conversations), default=1)
+    total_prompts_to_llm = sum(1 for p in all_pieces if p.role == "user")
+
     section: dict[str, Any] = {
         "threat_name": threat_name,
-        "owasp_mapping": owasp,
-        "mitre_atlas_mapping": mitre,
-        "attack_strategy": attack_strategy,
+        "attack_configuration": {
+            "attack_type": threat_name,
+            "attack_strategy": attack_strategy,
+            "datasets_used": dataset_names,
+        },
+        "framework_mapping": {
+            "owasp": owasp,
+            "mitre_atlas": mitre,
+        },
         "statistics": {
-            "total_prompts_sent": total_prompts,
-            "total_responses_received": total_responses,
-            "total_scored": total_scored,
+            "total_prompts_to_llm": total_prompts_to_llm,
+            "max_prompts": max_prompts if max_prompts is not None else "unlimited",
+            "turn_count": turn_count,
             "successful_attacks": successful_attacks,
             "failed_attacks": failed_attacks,
             "attack_success_rate_pct": success_rate,
@@ -119,11 +166,7 @@ def _build_threat_section(
     ][:10]
     section["sample_successful_attacks"] = successful_samples
 
-    # Build full conversation history
-    section["conversations"] = _build_conversations(
-        all_pieces=all_pieces,
-        scores=scores,
-    )
+    section["conversations"] = conversations
 
     return section
 
@@ -139,28 +182,29 @@ _HTML_TEMPLATE = Template("""\
   h1 { color: #1a1a2e; }
   h2 { color: #16213e; border-bottom: 2px solid #0f3460; padding-bottom: .3rem; }
   h3 { color: #0f3460; }
+  h4 { color: #1a237e; margin-top: 1rem; }
   table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
   th, td { border: 1px solid #ccc; padding: .5rem .75rem; text-align: left; }
   th { background: #0f3460; color: #fff; }
   tr:nth-child(even) { background: #f4f4f4; }
-  .risk-CRITICAL { color: #fff; background: #d32f2f; padding: .2rem .6rem; border-radius: 4px; }
-  .risk-HIGH     { color: #fff; background: #e65100; padding: .2rem .6rem; border-radius: 4px; }
-  .risk-MEDIUM   { color: #000; background: #fbc02d; padding: .2rem .6rem; border-radius: 4px; }
-  .risk-LOW      { color: #fff; background: #388e3c; padding: .2rem .6rem; border-radius: 4px; }
-  .risk-NONE     { color: #fff; background: #616161; padding: .2rem .6rem; border-radius: 4px; }
   .sample { background: #fff3e0; padding: .75rem; margin: .5rem 0; border-left: 4px solid #e65100; }
-  .strategy-badge { display: inline-block; background: #1565c0; color: #fff; padding: .25rem .75rem; border-radius: 4px; font-weight: bold; margin-right: .5rem; }
-  .attack-type-badge { display: inline-block; background: #6a1b9a; color: #fff; padding: .25rem .75rem; border-radius: 4px; font-weight: bold; margin-right: .5rem; }
+  .config-box { background: #ede7f6; border: 1px solid #6a1b9a; border-radius: 6px; padding: .75rem 1rem; margin: .75rem 0; }
+  .config-box strong { color: #4a148c; }
+  .config-label { display: inline-block; background: #6a1b9a; color: #fff; padding: .15rem .5rem; border-radius: 3px; font-size: .85em; margin-right: .4rem; }
   .framework-box { background: #e3f2fd; border: 1px solid #1565c0; border-radius: 6px; padding: .75rem 1rem; margin: .75rem 0; }
   .framework-box strong { color: #0d47a1; }
   .framework-label { display: inline-block; background: #0d47a1; color: #fff; padding: .15rem .5rem; border-radius: 3px; font-size: .85em; margin-right: .4rem; }
-  .conversation { border: 1px solid #ddd; border-radius: 6px; margin: .75rem 0; padding: .75rem; background: #fafafa; }
-  .conversation h4 { margin: 0 0 .5rem 0; color: #333; font-size: .95em; }
-  .turn { padding: .4rem .6rem; margin: .3rem 0; border-radius: 4px; }
-  .turn-user { background: #e3f2fd; border-left: 3px solid #1565c0; }
-  .turn-assistant { background: #f3e5f5; border-left: 3px solid #6a1b9a; }
-  .turn-role { font-weight: bold; font-size: .85em; text-transform: uppercase; color: #555; }
-  .turn-score { font-size: .85em; color: #c62828; margin-top: .2rem; }
+  .prompt-block { border: 1px solid #ddd; border-radius: 6px; margin: 1rem 0; padding: 0; background: #fafafa; overflow: hidden; }
+  .prompt-header { background: #1565c0; color: #fff; padding: .5rem .75rem; font-weight: bold; font-size: .95em; }
+  .prompt-objective { background: #e8eaf6; padding: .5rem .75rem; font-size: .9em; border-bottom: 1px solid #ddd; }
+  .turn-block { padding: .5rem .75rem; border-bottom: 1px solid #eee; }
+  .turn-block:last-child { border-bottom: none; }
+  .turn-label { font-weight: bold; font-size: .85em; color: #0d47a1; margin-bottom: .3rem; }
+  .turn-prompt { background: #e3f2fd; border-left: 3px solid #1565c0; padding: .4rem .6rem; margin: .3rem 0; border-radius: 4px; }
+  .turn-response { background: #f3e5f5; border-left: 3px solid #6a1b9a; padding: .4rem .6rem; margin: .3rem 0; border-radius: 4px; }
+  .turn-prompt-label { font-weight: bold; font-size: .8em; text-transform: uppercase; color: #1565c0; }
+  .turn-response-label { font-weight: bold; font-size: .8em; text-transform: uppercase; color: #6a1b9a; }
+  .turn-score { font-size: .85em; color: #c62828; margin-top: .3rem; padding: .2rem .4rem; background: #ffebee; border-radius: 3px; }
 </style>
 </head>
 <body>
@@ -173,28 +217,29 @@ _HTML_TEMPLATE = Template("""\
 <h2>Executive Summary</h2>
 <table>
   <tr><th>Metric</th><th>Value</th></tr>
-  <tr><td>Total Prompts Sent</td><td>{{ summary.total_prompts_sent }}</td></tr>
-  <tr><td>Total Responses</td><td>{{ summary.total_responses_received }}</td></tr>
-  <tr><td>Total Scored</td><td>{{ summary.total_scored }}</td></tr>
+  <tr><td>Total Prompts to LLM</td><td>{{ summary.total_prompts_to_llm }}</td></tr>
+  <tr><td>Max Prompts (configured limit)</td><td>{{ summary.max_prompts }}</td></tr>
   <tr><td>Successful Attacks</td><td>{{ summary.total_successful_attacks }}</td></tr>
   <tr><td>Attack Success Rate</td><td>{{ summary.overall_attack_success_rate_pct }}%</td></tr>
-  <tr><td>Risk Rating</td><td><span class="risk-{{ summary.risk_rating }}">{{ summary.risk_rating }}</span></td></tr>
 </table>
 
 {% for threat in threats %}
 <h2>{{ threat.threat_name }}</h2>
 
-<p>
-  <span class="strategy-badge">Strategy: {{ threat.attack_strategy }}</span>
-  <span class="attack-type-badge">Attack: {{ threat.threat_name }}</span>
-</p>
-
-<div class="framework-box">
-  <strong>Aligned Framework Findings</strong><br>
-  <span class="framework-label">OWASP</span> {{ threat.owasp_mapping }}<br>
-  <span class="framework-label">MITRE ATLAS</span> {{ threat.mitre_atlas_mapping }}
+<h3>Attack Configuration</h3>
+<div class="config-box">
+  <span class="config-label">Attack Type</span> {{ threat.attack_configuration.attack_type }}<br>
+  <span class="config-label">Strategy</span> {{ threat.attack_configuration.attack_strategy }}<br>
+  <span class="config-label">Datasets Used</span> {{ threat.attack_configuration.datasets_used | join(', ') }}
 </div>
 
+<h3>Security Framework Mapping</h3>
+<div class="framework-box">
+  <span class="framework-label">OWASP</span> {{ threat.framework_mapping.owasp }}<br>
+  <span class="framework-label">MITRE ATLAS</span> {{ threat.framework_mapping.mitre_atlas }}
+</div>
+
+<h3>Results</h3>
 <table>
   <tr><th>Metric</th><th>Value</th></tr>
   {% for key, val in threat.statistics.items() %}
@@ -212,15 +257,24 @@ _HTML_TEMPLATE = Template("""\
 {% endfor %}
 {% endif %}
 {% if threat.conversations %}
-<h3>Conversation History</h3>
+<h3>Prompt &amp; Response History</h3>
 {% for conv in threat.conversations %}
-<div class="conversation">
-  <h4>Conversation {{ loop.index }}</h4>
+<div class="prompt-block">
+  <div class="prompt-header">Prompt {{ loop.index }} ({{ conv.total_turns }} turn{{ 's' if conv.total_turns != 1 else '' }})</div>
+  <div class="prompt-objective"><strong>Objective:</strong> {{ conv.objective[:500] }}</div>
   {% for turn in conv.turns %}
-  <div class="turn turn-{{ turn.role }}">
-    <span class="turn-role">{{ turn.role }}:</span> {{ turn.content[:500] }}
+  <div class="turn-block">
+    <div class="turn-label">Turn {{ turn.turn_number }}</div>
+    <div class="turn-prompt">
+      <span class="turn-prompt-label">Prompt:</span> {{ turn.prompt[:500] }}
+    </div>
+    {% if turn.response %}
+    <div class="turn-response">
+      <span class="turn-response-label">Response:</span> {{ turn.response[:500] }}
+    </div>
+    {% endif %}
     {% if turn.score_value %}
-    <div class="turn-score">Score: {{ turn.score_value }} — {{ turn.score_rationale }}</div>
+    <div class="turn-score">Score: {{ turn.score_value }} &mdash; {{ turn.score_rationale }}</div>
     {% endif %}
   </div>
   {% endfor %}
@@ -282,46 +336,57 @@ def _render_pdf(report: dict[str, Any], output_path: Path) -> None:
     story.append(summary_table)
     story.append(Spacer(1, 0.3 * inch))
 
-    # Styles for strategy/attack badges and framework highlights
-    badge_style = ParagraphStyle(
-        "Badge", parent=normal_style, fontSize=10, textColor=colors.white,
-        backColor=colors.HexColor("#1565c0"), spaceAfter=4,
+    # Styles for attack config and framework highlights
+    config_style = ParagraphStyle(
+        "Config", parent=normal_style, fontSize=9,
+        backColor=colors.HexColor("#ede7f6"), borderColor=colors.HexColor("#6a1b9a"),
+        borderWidth=1, borderPadding=6, spaceAfter=6,
     )
     framework_style = ParagraphStyle(
         "Framework", parent=normal_style, fontSize=9,
         backColor=colors.HexColor("#e3f2fd"), borderColor=colors.HexColor("#1565c0"),
         borderWidth=1, borderPadding=6, spaceAfter=6,
     )
-    turn_user_style = ParagraphStyle(
-        "TurnUser", parent=normal_style, fontSize=8, leftIndent=12,
+    turn_prompt_style = ParagraphStyle(
+        "TurnPrompt", parent=normal_style, fontSize=8, leftIndent=12,
         backColor=colors.HexColor("#e3f2fd"), spaceAfter=2,
     )
-    turn_assistant_style = ParagraphStyle(
-        "TurnAssistant", parent=normal_style, fontSize=8, leftIndent=12,
+    turn_response_style = ParagraphStyle(
+        "TurnResponse", parent=normal_style, fontSize=8, leftIndent=12,
         backColor=colors.HexColor("#f3e5f5"), spaceAfter=2,
+    )
+    score_style = ParagraphStyle(
+        "TurnScore", parent=normal_style, fontSize=8, leftIndent=12,
+        textColor=colors.HexColor("#c62828"), spaceAfter=4,
     )
 
     # Per-threat sections
     for threat in report["threat_results"]:
         story.append(Paragraph(threat["threat_name"], heading_style))
 
-        # Highlighted strategy and attack type
+        # Attack Configuration section
+        attack_config = threat["attack_configuration"]
+        story.append(Paragraph("Attack Configuration", styles["Heading3"]))
         story.append(Paragraph(
-            f"<b>Strategy:</b> {threat['attack_strategy']} &nbsp;&nbsp; "
-            f"<b>Attack Type:</b> {threat['threat_name']}",
-            badge_style,
+            f"<b>Attack Type:</b> {attack_config['attack_type']}<br/>"
+            f"<b>Strategy:</b> {attack_config['attack_strategy']}<br/>"
+            f"<b>Datasets Used:</b> {', '.join(attack_config['datasets_used'])}",
+            config_style,
         ))
         story.append(Spacer(1, 0.1 * inch))
 
-        # Highlighted aligned framework findings
+        # Security Framework Mapping section
+        fw = threat["framework_mapping"]
+        story.append(Paragraph("Security Framework Mapping", styles["Heading3"]))
         story.append(Paragraph(
-            f"<b>Aligned Framework Findings</b><br/>"
-            f"<b>OWASP:</b> {threat['owasp_mapping']}<br/>"
-            f"<b>MITRE ATLAS:</b> {threat['mitre_atlas_mapping']}",
+            f"<b>OWASP:</b> {fw['owasp']}<br/>"
+            f"<b>MITRE ATLAS:</b> {fw['mitre_atlas']}",
             framework_style,
         ))
         story.append(Spacer(1, 0.15 * inch))
 
+        # Results table
+        story.append(Paragraph("Results", styles["Heading3"]))
         stats_data = [["Metric", "Value"]] + [
             [k, str(v)] for k, v in threat["statistics"].items()
         ]
@@ -348,20 +413,35 @@ def _render_pdf(report: dict[str, Any], output_path: Path) -> None:
                 ))
                 story.append(Spacer(1, 0.1 * inch))
 
-        # Conversation history
+        # Prompt & Response History
         conversations = threat.get("conversations", [])
         if conversations:
             story.append(Spacer(1, 0.1 * inch))
-            story.append(Paragraph("Conversation History", styles["Heading3"]))
+            story.append(Paragraph("Prompt &amp; Response History", styles["Heading3"]))
             for idx, conv in enumerate(conversations, 1):
-                story.append(Paragraph(f"<b>Conversation {idx}</b>", normal_style))
+                total_turns = conv.get("total_turns", len(conv["turns"]))
+                story.append(Paragraph(
+                    f"<b>Prompt {idx}</b> ({total_turns} turn{'s' if total_turns != 1 else ''})",
+                    normal_style,
+                ))
+                objective = conv.get("objective", "")[:500]
+                if objective:
+                    story.append(Paragraph(f"<b>Objective:</b> {objective}", normal_style))
                 for turn in conv["turns"]:
-                    content = turn["content"][:500]
-                    style = turn_user_style if turn["role"] == "user" else turn_assistant_style
-                    text = f"<b>{turn['role'].upper()}:</b> {content}"
+                    story.append(Paragraph(
+                        f"<b>Turn {turn['turn_number']} — Prompt:</b> {turn['prompt'][:500]}",
+                        turn_prompt_style,
+                    ))
+                    if turn.get("response"):
+                        story.append(Paragraph(
+                            f"<b>Turn {turn['turn_number']} — Response:</b> {turn['response'][:500]}",
+                            turn_response_style,
+                        ))
                     if turn.get("score_value"):
-                        text += f"<br/><i>Score: {turn['score_value']} — {turn.get('score_rationale', '')}</i>"
-                    story.append(Paragraph(text, style))
+                        story.append(Paragraph(
+                            f"Score: {turn['score_value']} — {turn.get('score_rationale', '')}",
+                            score_style,
+                        ))
                 story.append(Spacer(1, 0.1 * inch))
 
         story.append(Spacer(1, 0.3 * inch))
@@ -375,6 +455,7 @@ def generate_report(
     threat_classes: list[type],
     output_dir: str | Path = ".",
     formats: list[str] | None = None,
+    max_prompts: int | None = None,
 ) -> list[Path]:
     """
     Query PyRIT memory for all prompts and scores in a run,
@@ -386,6 +467,7 @@ def generate_report(
         output_dir (str | Path): Directory to write the report files. Defaults to cwd.
         formats (list[str] | None): Output formats to generate. Supports "json", "html", "pdf".
             Defaults to ["json"] when None.
+        max_prompts (int | None): The configured max-prompts limit for the run. Defaults to None.
 
     Returns:
         list[Path]: The paths to all generated report files.
@@ -405,8 +487,7 @@ def generate_report(
     report_title = f"AI Red Teaming Report using PyRIT on {target_model}"
 
     threat_sections: list[dict[str, Any]] = []
-    global_total_prompts = 0
-    global_total_responses = 0
+    global_total_prompts_to_llm = 0
     global_total_successful = 0
     global_total_scored = 0
 
@@ -437,16 +518,15 @@ def generate_report(
             owasp=scenario.owasp_mapping,
             mitre=scenario.mitre_atlas_mapping,
             attack_strategy=scenario.attack_strategy,
-            total_prompts=len(user_pieces),
-            total_responses=len(assistant_pieces),
+            dataset_names=scenario.dataset_names,
+            max_prompts=max_prompts,
             scores=scores,
             all_pieces=list(all_pieces),
         )
         threat_sections.append(section)
 
         # Accumulate globals
-        global_total_prompts += len(user_pieces)
-        global_total_responses += len(assistant_pieces)
+        global_total_prompts_to_llm += len(user_pieces)
         tf_scores = [s for s in scores if s.score_type == "true_false"]
         global_total_scored += len(tf_scores)
         global_total_successful += sum(1 for s in tf_scores if s.score_value.lower() == "true")
@@ -465,12 +545,10 @@ def generate_report(
             "threats_executed": len(threat_sections),
         },
         "executive_summary": {
-            "total_prompts_sent": global_total_prompts,
-            "total_responses_received": global_total_responses,
-            "total_scored": global_total_scored,
+            "total_prompts_to_llm": global_total_prompts_to_llm,
+            "max_prompts": max_prompts if max_prompts is not None else "unlimited",
             "total_successful_attacks": global_total_successful,
             "overall_attack_success_rate_pct": global_success_rate,
-            "risk_rating": _compute_risk_rating(global_success_rate),
         },
         "threat_results": threat_sections,
     }
@@ -500,16 +578,3 @@ def generate_report(
         print(f"[REPORT] PDF report written to: {pdf_path}")
 
     return generated_paths
-
-
-def _compute_risk_rating(success_rate_pct: float) -> str:
-    """Map the overall attack success rate to a human-readable risk label."""
-    if success_rate_pct >= 50:
-        return "CRITICAL"
-    if success_rate_pct >= 25:
-        return "HIGH"
-    if success_rate_pct >= 10:
-        return "MEDIUM"
-    if success_rate_pct > 0:
-        return "LOW"
-    return "NONE"
