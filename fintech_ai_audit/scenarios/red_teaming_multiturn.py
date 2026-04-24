@@ -8,6 +8,7 @@ from pyrit.executor.attack import (
     RedTeamingAttack,
     RTASystemPromptPaths
 )
+from pyrit.memory import CentralMemory
 from pyrit.models import SeedPrompt
 from pyrit.prompt_target import PromptChatTarget, PromptTarget
 from pyrit.score import (
@@ -116,3 +117,66 @@ class RedTeamingMultiTurnScenario(BaseFintechScenario):
             objectives=chunk,
             memory_labels=labels,
         )
+
+        # 5. PRINT SCORES — query memory and print scorer output per turn
+        self._print_turn_scores(labels=labels)
+
+    def _print_turn_scores(self, *, labels: dict) -> None:
+        """Query memory for all pieces and scores, then print per-conversation turn results."""
+        memory = CentralMemory.get_memory_instance()
+
+        all_pieces = memory.get_message_pieces(labels=labels)
+        scores = list(memory.get_prompt_scores(labels=labels, role="assistant"))
+
+        score_by_piece: dict[str, list] = {}
+        for s in scores:
+            score_by_piece.setdefault(str(s.message_piece_id), []).append(s)
+
+        conversations: dict[str, list] = {}
+        for piece in all_pieces:
+            cid = str(piece.conversation_id)
+            conversations.setdefault(cid, []).append(piece)
+
+        print(f"\n{'=' * 70}")
+        print(f"  SCORER OUTPUT — {self.threat_name}")
+        print(f"{'=' * 70}")
+
+        for conv_idx, (cid, pieces) in enumerate(conversations.items(), 1):
+            sorted_pieces = sorted(pieces, key=lambda p: p.sequence)
+            print(f"\n--- Conversation {conv_idx} (ID: {cid[:8]}...) ---")
+
+            turn_number = 0
+            i = 0
+            while i < len(sorted_pieces):
+                p = sorted_pieces[i]
+                if p.role == "user":
+                    turn_number += 1
+                    prompt_text = (p.converted_value or p.original_value or "")[:200]
+
+                    if i + 1 < len(sorted_pieces) and sorted_pieces[i + 1].role == "assistant":
+                        ap = sorted_pieces[i + 1]
+                        response_text = (ap.converted_value or ap.original_value or "")[:200]
+                        piece_scores = score_by_piece.get(str(ap.id), [])
+
+                        print(f"\n  Turn {turn_number}:")
+                        print(f"    Prompt:   {prompt_text}")
+                        print(f"    Response: {response_text}")
+
+                        if piece_scores:
+                            for s in piece_scores:
+                                scorer_name = s.scorer_class_identifier.class_name if s.scorer_class_identifier else "unknown"
+                                rationale = (s.score_rationale[:150] if s.score_rationale else "N/A")
+                                print(f"    [{scorer_name}] {s.score_type}: {s.score_value} — {rationale}")
+                        else:
+                            print(f"    [No scores for this turn]")
+                        i += 2
+                    else:
+                        print(f"\n  Turn {turn_number}:")
+                        print(f"    Prompt:   {prompt_text}")
+                        print(f"    Response: (none)")
+                        print(f"    [No scores for this turn]")
+                        i += 1
+                else:
+                    i += 1
+
+        print(f"\n{'=' * 70}\n")
