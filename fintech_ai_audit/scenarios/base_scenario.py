@@ -114,7 +114,7 @@ class BaseFintechScenario(ABC):
                 "owasp": self.owasp_mapping,
                 "mitre_atlas": self.mitre_atlas_mapping,
                 "batch_id": current_batch_id,
-                "dataset_names": self.dataset_names,
+                "dataset_names": ",".join(self.dataset_names),
                 "attack_strategy": self.attack_strategy,
             }
 
