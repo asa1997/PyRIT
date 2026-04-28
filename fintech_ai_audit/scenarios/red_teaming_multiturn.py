@@ -119,7 +119,12 @@ class RedTeamingMultiTurnScenario(BaseFintechScenario):
         )
 
         # 5. PRINT SCORES — query memory and print scorer output per turn
-        self._print_turn_scores(labels=labels)
+        # self._print_turn_scores(labels=labels)
+        memory = CentralMemory.get_memory_instance()
+        print("#####################Exporting conversations")
+        memory.export_conversations(labels=labels, file_path=Path(f"red_teaming_multiturn_conversations_{labels['batch_id']}.json"))
+        print(memory.get_attack_results(labels=labels))
+
 
     def _print_turn_scores(self, *, labels: dict) -> None:
 

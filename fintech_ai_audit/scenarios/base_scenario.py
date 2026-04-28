@@ -113,7 +113,9 @@ class BaseFintechScenario(ABC):
                 "threat": self.threat_name,
                 "owasp": self.owasp_mapping,
                 "mitre_atlas": self.mitre_atlas_mapping,
-                "batch_id": current_batch_id 
+                "batch_id": current_batch_id,
+                "dataset_names": self.dataset_names,
+                "attack_strategy": self.attack_strategy,
             }
 
             # 4. HANDOFF: Pass this specific safe chunk to the child class's attack strategy
