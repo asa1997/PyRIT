@@ -123,8 +123,17 @@ class RedTeamingMultiTurnScenario(BaseFintechScenario):
         memory = CentralMemory.get_memory_instance()
         print("#####################Exporting conversations")
         memory.export_conversations(labels=labels, file_path=Path(f"red_teaming_multiturn_conversations_{labels['batch_id']}.json"))
-        print(memory.get_attack_results(labels=labels))
 
+        print("#####################Printing successful attack results")
+
+        print("=================Successful Attacks=================")
+        print("")
+        print("")
+
+        print(memory.get_attack_results(labels=labels, outcome="success"))
+        print("")
+        print("")
+        print("=================================================")
 
     def _print_turn_scores(self, *, labels: dict) -> None:
 
