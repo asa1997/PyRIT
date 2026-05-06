@@ -68,7 +68,7 @@ class PromptInjectionScenario(BaseFintechScenario):
         prepended_prompt = [Message.from_system_prompt(persona_text)]
         
         # 2. CREATE ATTACK
-        attack = PromptSendingAttack(objective_target=target_llm)
+        attack = PromptSendingAttack(objective_target=target_llm, attack_scoring_config=self.get_scorer(judge_llm))
         
         # 3. EXECUTE ATTACK FOR THE CHUNK
         # We pass the 'chunk' (5,000 prompts) and 'labels' (batch_1, batch_2, etc.) 
