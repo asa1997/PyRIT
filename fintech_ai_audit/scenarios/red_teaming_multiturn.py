@@ -135,6 +135,13 @@ class RedTeamingMultiTurnScenario(BaseFintechScenario):
         print("")
         print("=================================================")
 
+        print("#####################Printing schemas")
+
+        print("=================Schemas=================")
+        print(memory.print_schema())
+        print("")
+        print("")
+
     def _print_turn_scores(self, *, labels: dict) -> None:
 
         print("===================================================")
