@@ -2,9 +2,9 @@ from pathlib import Path
 from typing import Optional
 
 from pyrit.executor.attack import PromptSendingAttack, AttackExecutor
-from pyrit.score import Scorer
+from pyrit.score import Scorer, TrueFalseQuestion, SelfAskTrueFalseScorer
 from pyrit.models import Message, SeedPrompt
-from pyrit.prompt_target import PromptTarget
+from pyrit.prompt_target import PromptTarget, PromptChatTarget
 
 from .base_scenario import BaseFintechScenario
 
@@ -33,7 +33,7 @@ class PromptInjectionScenario(BaseFintechScenario):
     # 2. SCORER
     # ==========================================
     @staticmethod
-    def get_scorer(judge_llm: PromptTarget) -> Scorer:
+    def get_scorer(judge_llm: PromptChatTarget) -> Scorer:
         """
         Uses a custom True/False rubric so the Judge LLM knows exactly 
         what a 'successful' malicious attack looks like.
@@ -59,8 +59,11 @@ class PromptInjectionScenario(BaseFintechScenario):
     # ==========================================
     # 3. ATTACK STRATEGY (The "Specialist")
     # ==========================================
-    async def _execute_attack_strategy(self, target_llm: PromptTarget, judge_llm: Optional[PromptTarget], chunk: list[str], labels: dict):
+    async def _execute_attack_strategy(self, target_llm: PromptTarget, judge_llm: Optional[PromptChatTarget], chunk: list[str], labels: dict):
         
+        if judge_llm is None:
+            raise ValueError("judge_llm is required for PromptInjectionScenario")
+
         # 1. DYNAMIC SYSTEM PROMPT (PERSONA) LOADING
         # We keep your specific unfiltered_assistant persona!
         persona_path = Path("rubrics/personas/unfiltered_assistant.yaml").resolve()
