@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Optional
 
 from pyrit.executor.attack import PromptSendingAttack, AttackExecutor
+from pyrit.executor.attack.core.attack_config import AttackScoringConfig
 from pyrit.score import Scorer, TrueFalseQuestion, SelfAskTrueFalseScorer
 from pyrit.models import Message, SeedPrompt
 from pyrit.prompt_target import PromptTarget, PromptChatTarget
@@ -33,7 +34,7 @@ class PromptInjectionScenario(BaseFintechScenario):
     # 2. SCORER
     # ==========================================
     @staticmethod
-    def get_scorer(judge_llm: PromptChatTarget) -> Scorer:
+    def get_scorer(judge_llm: PromptChatTarget) -> SelfAskTrueFalseScorer:
         """
         Uses a custom True/False rubric so the Judge LLM knows exactly 
         what a 'successful' malicious attack looks like.
@@ -71,7 +72,8 @@ class PromptInjectionScenario(BaseFintechScenario):
         prepended_prompt = [Message.from_system_prompt(persona_text)]
         
         # 2. CREATE ATTACK
-        attack = PromptSendingAttack(objective_target=target_llm, attack_scoring_config=self.get_scorer(judge_llm))
+        scoring_config = AttackScoringConfig(objective_scorer=self.get_scorer(judge_llm))
+        attack = PromptSendingAttack(objective_target=target_llm, attack_scoring_config=scoring_config)
         
         # 3. EXECUTE ATTACK FOR THE CHUNK
         # We pass the 'chunk' (5,000 prompts) and 'labels' (batch_1, batch_2, etc.) 
