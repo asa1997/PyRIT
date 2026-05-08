@@ -2,14 +2,14 @@ import asyncio
 from pyrit.executor.attack import ConsoleAttackResultPrinter, PromptSendingAttack, AttackScoringConfig, AttackExecutor
 from pyrit.prompt_target import OpenAIChatTarget
 from pyrit.datasets import SeedDatasetProvider
-from pyrit.setup import SQLITE, initialize_pyrit_async
+from pyrit.setup import IN_MEMORY, initialize_pyrit_async
 from pathlib import Path
 from pyrit.score import SelfAskTrueFalseScorer
 
 async def main():
     config_path = Path("/app/fintech_ai_audit/config.env")
     await initialize_pyrit_async(
-                memory_db_type=SQLITE,
+                memory_db_type=IN_MEMORY,
                 env_files = [config_path]
                 )
     datasets = await SeedDatasetProvider.fetch_datasets_async(dataset_names=["promptintel"])
