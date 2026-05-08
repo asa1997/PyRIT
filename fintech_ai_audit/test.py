@@ -1,5 +1,5 @@
 import asyncio
-from pyrit.executor.attack import ConsoleAttackResultPrinter, PromptSendingAttack, AttackScoringConfig
+from pyrit.executor.attack import ConsoleAttackResultPrinter, PromptSendingAttack, AttackScoringConfig, AttackExecutor
 from pyrit.prompt_target import OpenAIChatTarget
 from pyrit.datasets import SeedDatasetProvider
 from pyrit.setup import SQLITE, initialize_pyrit_async
@@ -13,13 +13,17 @@ async def main():
                 env_files = [config_path]
                 )
     datasets = await SeedDatasetProvider.fetch_datasets_async(dataset_names=["promptintel"])
+    objectives = [seed.value for dataset in datasets for seed in dataset.seeds]
     target = OpenAIChatTarget()
     true_false_classifier = SelfAskTrueFalseScorer(
     chat_target=OpenAIChatTarget(),
 )
 
     attack = PromptSendingAttack(objective_target=target, attack_scoring_config=AttackScoringConfig(objective_scorer=true_false_classifier))
-    result = await attack.execute_async(datasets)  # type: ignore
+    result = await AttackExecutor(max_concurrency=1).execute_attack_async(
+            attack=attack,    
+            objectives=objectives
+        )
 
     printer = ConsoleAttackResultPrinter()
     await printer.print_conversation_async(result=result)  # type: ignore
