@@ -103,6 +103,11 @@ async def main(
         from batch_score import execute_batch_scoring
         for threat_class in threats_to_run:
             await execute_batch_scoring(current_run_id, threat_class.__name__)
+    # elif judge_llm is not None:
+    #     print("\n=== STARTING INLINE SCORING ===")
+    #     from batch_score import execute_batch_scoring
+    #     for threat_class in threats_to_run:
+    #         await execute_batch_scoring(current_run_id, threat_class.__name__)
 
     # 6. GENERATE REPORT(S)
     print("\n=== GENERATING REPORT ===")
