@@ -97,7 +97,7 @@ def main() -> None:
     out()
 
     # Write results to file
-    output_path = "fintech_ai_audit/stored_data_report.txt"
+    output_path = "/app/fintech_ai_audit/stored_data_report.txt"
     with open(output_path, "w") as f:
         f.write(output.getvalue())
     print(f"Results written to {output_path}")
