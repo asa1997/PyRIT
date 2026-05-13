@@ -1,0 +1,17 @@
+{
+  "report_metadata": {
+    "report_title": "AI Red Teaming Report using PyRIT on mistral:7b",
+    "run_id": "016f9f97-5888-4b2a-bb2a-c47ae16db73c",
+    "generated_at": "2026-05-06T06:37:22.478493+00:00",
+    "target_model": "mistral:7b",
+    "judge_model": "qwen2.5:14b",
+    "threats_executed": 0
+  },
+  "executive_summary": {
+    "total_prompts_to_llm": 0,
+    "max_prompts": 5,
+    "total_successful_attacks": 0,
+    "overall_attack_success_rate_pct": 0.0
+  },
+  "threat_results": []
+}
